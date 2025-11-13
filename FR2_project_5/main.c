@@ -18,6 +18,7 @@
 #define TRUE 1
 #define FALSE 0
 #define BTN_ENA_DELAY 60
+#define PB1_ENA_DELAY 5
 /******************************************************************************
 * Constants
 ******************************************************************************/
@@ -31,12 +32,17 @@ uint16_t cnt=0;
 
 uint8_t timer_task_10ms = FALSE, timer_task_50ms = FALSE, timer_task_100ms = FALSE, timer_task_500ms = FALSE, timer_task_1s = FALSE;
 
-uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = FALSE;
-uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = FALSE;
-uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = FALSE;
+uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = 60;
+uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = 5;
+uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = 60;
 
 uint8_t enable_cnt = 0;
-// uint16_t meghivas =0;
+uint8_t ciklus = 0;
+int8_t pos1 = 3;
+uint8_t pos2 = 4;
+uint8_t jobb_ind = FALSE;
+uint8_t bal_ind = FALSE;
+uint8_t vesz_toggle = FALSE;
 
 /******************************************************************************
 * External Variables
@@ -48,6 +54,9 @@ uint8_t enable_cnt = 0;
 ******************************************************************************/
 void timer_init(void);
 void port_init(void);
+void jobb_index(void);
+void bal_index(void);
+void veszvillogo(void);
 
 /******************************************************************************
 * Local Function Definitions
@@ -62,27 +71,36 @@ void port_init(void)
 	PORTB = (1<<PB0) | (1<<PB1) | (1 << PB2);
 }
 
-void jobb_index()
+void jobb_index(void)
 {	
-		for (int i=0;i<2;i++)
-		{			
-			if ((cnt % 5) ==0)
-				{
-					for (int j=0;j<3;j++)
-					{
-						if (j==0) PORTA = 8;
-						if (j==1) PORTA = 4;
-						if (j==2) PORTA = 2;
-						if (j==3) PORTA = 1;						
-					}
-				}
-				
-		}		
+	
+	if (pos1 >= 0 ) PORTA = PORTA | (1<<pos1);
+	if (pos1 == -1) PORTA = PORTA & 0xf0;
+	
+	if (pos1 >= 0 ) PORTD = PORTD | (1<<pos1);
+	if (pos1 == -1) PORTD = PORTD & 0xf0;
+	
+	if (pos1 == -2) pos1 = 4;
+	pos1--;
+	
 }
 
-void bal_index()
+void bal_index(void)
 {
+	if (pos2 <= 7 ) PORTA = PORTA | (1<<pos2);
+	if (pos2 == 8) PORTA = PORTA & 0x0f;
 	
+	if (pos2 <= 7 ) PORTD = PORTD | (1<<pos2);
+	if (pos2 == 8) PORTD = PORTD & 0x0f;
+	
+	if (pos2 == 9) pos2 = 3;
+	pos2++;
+}
+
+void veszvillogo(void)
+{
+	bal_index();
+	jobb_index();
 }
 /******************************************************************************
 * Function:         int main(void)
@@ -108,13 +126,7 @@ int main(void)
 		if(timer_task_50ms)
 		{
 
-				//PB0
-			if (PB0_pushed)
-			{
-			cnt++;					
-			jobb_index();
-					
-					
+			//PB0	***********************************************************************************************************	
 			if((PINB & (1<<PB0)) == 0 && PB0_pushed == FALSE && PB0_re_enable_cnt==BTN_ENA_DELAY)
 			{
 						
@@ -124,33 +136,78 @@ int main(void)
 			if((PINB & (1<<PB0)) == (1<<PB0) && PB0_pushed == TRUE && PB0_re_enable_cnt==BTN_ENA_DELAY)
 			{
 				PB0_pushed=FALSE;
-				PB0_re_enable_cnt = 0;
+				PORTA = 0;
+				PORTD = 0;
+				
+				
+				PB0_re_enable_cnt = 55;
 			}
-										
+			//*****************************************************************************************************************							
 					
-					
-				// PB1
-				if((PINB & (1<<PB1)) == 0 && PB1_pushed == FALSE)
+			// PB1
+			if((PINB & (1<<PB1)) == 0 && PB1_pushed == FALSE && PB1_re_enable_cnt == PB1_ENA_DELAY)
+			{
+				if( vesz_toggle == FALSE )
 				{
-					
-					PB1_pushed = TRUE;
+					vesz_toggle = TRUE;
 				}
 				
-				if((PINB & (1<<PB1)) == (1<<PB1) && PB1_pushed == TRUE) PB1_pushed=FALSE;
-				// PB2
-				if((PINB & (1<<PB2)) == 0 && PB2_pushed == FALSE)
+				else
 				{
-					bal_index();
-					PB2_pushed = TRUE;
+					vesz_toggle = FALSE;
 				}
 				
-				if((PINB & (1<<PB2)) == (1<<PB2) && PB2_pushed == TRUE) PB2_pushed=FALSE;
+				PORTA = 0;
+				PORTD = 0;
+				PB1_re_enable_cnt = 0;
+				PB1_pushed = TRUE;
+				
+			}
+				
+			if((PINB & (1<<PB1)) == (1<<PB1) && PB1_pushed == TRUE && PB1_re_enable_cnt == PB1_ENA_DELAY)
+			{
+					
+				PB1_re_enable_cnt = 0;
+				PB1_pushed=FALSE;
+			}
+			
+			//*****************************************************************************************************************		
+			// PB2
+			if((PINB & (1<<PB2)) == 0 && PB2_pushed == FALSE && PB2_re_enable_cnt==BTN_ENA_DELAY)
+			{
+				
+				PB2_pushed = TRUE;
+				PB2_re_enable_cnt = 0;
+			}
+			if((PINB & (1<<PB2)) == (1<<PB2) && PB2_pushed == TRUE && PB2_re_enable_cnt==BTN_ENA_DELAY)
+			{
+				PORTA = 0;
+				PORTD = 0;
+				
+				
+				PB2_pushed=FALSE;
+				PB2_re_enable_cnt = 55;
+			}
+			//*****************************************************************************************************************		
+			
+			//gomb tiltasok
+			if(PB0_re_enable_cnt<BTN_ENA_DELAY) PB0_re_enable_cnt += 1;
+			if(PB1_re_enable_cnt<PB1_ENA_DELAY) PB1_re_enable_cnt += 1;
+			if(PB2_re_enable_cnt<BTN_ENA_DELAY) PB2_re_enable_cnt += 1;
 			
 			timer_task_50ms=FALSE;
-		}
+			}
+		
 		
 		if(timer_task_100ms)
 		{
+			if (PB0_pushed) jobb_index();
+			
+			if (vesz_toggle) veszvillogo();
+			
+			if(PB2_pushed) bal_index();
+			
+			
 			timer_task_100ms=FALSE;
 		}
 		
@@ -161,9 +218,16 @@ int main(void)
 		}
 		if(timer_task_1s)
 		{
+			if(PB0_pushed || PB1_pushed || PB2_pushed)
+			{
+				ciklus++;
+			}
+			
+			if(ciklus == 3) ciklus = 0;
 			
 			timer_task_1s=FALSE;
 		}
+	
 	}
 	
 }

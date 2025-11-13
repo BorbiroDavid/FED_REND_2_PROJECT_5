@@ -54,7 +54,7 @@ void timer_init(void)
 
 /******************************************************************************
 * Function:   void external_int_init(void)
-* Description: Küls? megszakítások inicializálása
+* Description: Külso megszakítások inicializálása
 * Input:
 * Output:
 * Notes:
@@ -63,36 +63,6 @@ void external_int_init(void)
 {
 	EICRA = (1<<ISC01) | (0<<ISC00);
 	EIMSK = (1<<INT0);
-}
-
-/******************************************************************************
-* Function:   void ad_init(void)
-* Description: A/D konverer inicializálása
-* Input:
-* Output:
-* Notes:
-******************************************************************************/
-void ad_init(void)
-{
-	ADMUX=0;
-	ADCSRA= (1<<ADEN) | (1<<ADIE) | (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0);
-}
-
-/******************************************************************************
-* Function:   void uart_0_init(uint16_t baud)
-* Description: UART 0 inicializálása
-* Input:
-* Output:
-* Notes:
-******************************************************************************/
-void uart_0_init(uint16_t baud)
-{
-	UBRR0H = (unsigned char) (baud>>8);
-	UBRR0L = (unsigned char) baud;
-	
-	UCSR0A = 0;
-	UCSR0B = (1<<RXEN0) | (1<<TXEN0) | (1<<RXCIE0);
-	UCSR0C = (1<<UCSZ1) | (1<<UCSZ0);
 }
 
 

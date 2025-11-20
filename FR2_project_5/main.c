@@ -17,7 +17,7 @@
 ******************************************************************************/
 #define TRUE 1
 #define FALSE 0
-#define BTN_ENA_DELAY 60
+#define BTN_ENA_DELAY 50
 #define PB1_ENA_DELAY 5
 /******************************************************************************
 * Constants
@@ -30,11 +30,11 @@
 uint16_t timer_cnt=0;
 uint16_t cnt=0;
 
-uint8_t timer_task_10ms = FALSE, timer_task_50ms = FALSE, timer_task_100ms = FALSE, timer_task_500ms = FALSE, timer_task_1s = FALSE;
+uint8_t timer_task_10ms = FALSE, timer_task_50ms = FALSE, timer_task_150ms = FALSE, timer_task_450ms = FALSE, timer_task_1s = FALSE;
 
-uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = 60;
-uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = 5;
-uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = 60;
+uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = BTN_ENA_DELAY;
+uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
+uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
 uint8_t enable_cnt = 0;
 uint8_t ciklus = 0;
@@ -102,6 +102,9 @@ void veszvillogo(void)
 	bal_index();
 	jobb_index();
 }
+
+
+
 /******************************************************************************
 * Function:         int main(void)
 * Description:      main function
@@ -114,7 +117,7 @@ int main(void)
 	port_init();
 	timer_init();
 	sei();
-	/* Replace with your application code */
+	
 	while(1)
 	{
 		if(timer_task_10ms)
@@ -138,9 +141,10 @@ int main(void)
 				PB0_pushed=FALSE;
 				PORTA = 0;
 				PORTD = 0;
+				pos1 = 3;
+				pos2 = 4;
 				
-				
-				PB0_re_enable_cnt = 55;
+				PB0_re_enable_cnt = 40;
 			}
 			//*****************************************************************************************************************							
 					
@@ -159,6 +163,8 @@ int main(void)
 				
 				PORTA = 0;
 				PORTD = 0;
+				pos1 = 3;
+				pos2 = 4;
 				PB1_re_enable_cnt = 0;
 				PB1_pushed = TRUE;
 				
@@ -166,7 +172,10 @@ int main(void)
 				
 			if((PINB & (1<<PB1)) == (1<<PB1) && PB1_pushed == TRUE && PB1_re_enable_cnt == PB1_ENA_DELAY)
 			{
-					
+				PORTA = 0;
+				PORTD = 0;
+				pos1 = 3;
+				pos2 = 4;
 				PB1_re_enable_cnt = 0;
 				PB1_pushed=FALSE;
 			}
@@ -183,10 +192,11 @@ int main(void)
 			{
 				PORTA = 0;
 				PORTD = 0;
-				
+				pos1 = 3;
+				pos2 = 4;
 				
 				PB2_pushed=FALSE;
-				PB2_re_enable_cnt = 55;
+				PB2_re_enable_cnt = 40;
 			}
 			//*****************************************************************************************************************		
 			
@@ -198,24 +208,37 @@ int main(void)
 			timer_task_50ms=FALSE;
 			}
 		
-		
-		if(timer_task_100ms)
+	//*****************************************************************************************************************		
+			
+			//150 ms timer	
+		if(timer_task_150ms)
 		{
-			if (PB0_pushed) jobb_index();
+			if (PB0_pushed && !vesz_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) jobb_index();
 			
 			if (vesz_toggle) veszvillogo();
 			
-			if(PB2_pushed) bal_index();
+			if(PB2_pushed && !vesz_toggle && PB0_re_enable_cnt == BTN_ENA_DELAY) bal_index();
 			
 			
-			timer_task_100ms=FALSE;
+			timer_task_150ms=FALSE;
+		}
+//*****************************************************************************************************************		
+			
+			//450 ms timer			
+		if(timer_task_450ms)
+		{
+			if(PB0_pushed || PB1_pushed || PB2_pushed)
+			{
+				ciklus++;
+			}
+			
+			if(ciklus == 1) ciklus = 0;
+			timer_task_450ms=FALSE;
 		}
 		
-		if(timer_task_500ms)
-		{
+//*****************************************************************************************************************		
 			
-			timer_task_500ms=FALSE;
-		}
+			//1000 ms timer	
 		if(timer_task_1s)
 		{
 			if(PB0_pushed || PB1_pushed || PB2_pushed)
@@ -223,7 +246,7 @@ int main(void)
 				ciklus++;
 			}
 			
-			if(ciklus == 3) ciklus = 0;
+			if(ciklus == 1) ciklus = 0;
 			
 			timer_task_1s=FALSE;
 		}
@@ -241,8 +264,8 @@ ISR(TIMER0_COMP_vect)
 	timer_cnt++;
 	if((timer_cnt % 1) == 0) timer_task_10ms = TRUE;
 	if((timer_cnt % 5) == 0) timer_task_50ms = TRUE;
- 	if((timer_cnt % 10) == 0) timer_task_100ms = TRUE;
- 	if((timer_cnt % 50) == 0) timer_task_500ms = TRUE;
+ 	if((timer_cnt % 15) == 0) timer_task_150ms = TRUE;
+ 	if((timer_cnt % 45) == 0) timer_task_450ms = TRUE;
 	if((timer_cnt % 100) == 0) timer_task_1s = TRUE;
 }
 

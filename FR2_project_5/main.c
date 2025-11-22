@@ -37,12 +37,21 @@ uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
 uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
 uint8_t enable_cnt = 0;
-uint8_t ciklus = 0;
 int8_t pos1 = 3;
 uint8_t pos2 = 4;
 uint8_t jobb_ind = FALSE;
 uint8_t bal_ind = FALSE;
 uint8_t vesz_toggle = FALSE;
+
+float kormanyszog = 0;
+uint8_t kanyarodas = FALSE;
+
+float sebesseg_x[5];
+float sebesseg_y[5];
+float sebesseg_abs[5];
+float max_lassulas = 7;
+
+
 
 /******************************************************************************
 * External Variables
@@ -57,6 +66,10 @@ void port_init(void);
 void jobb_index(void);
 void bal_index(void);
 void veszvillogo(void);
+void CAN_beolvasas(void);
+void blinker_reset(void);
+void auto_blinker_off(void);
+void detect_crash(void);
 
 /******************************************************************************
 * Local Function Definitions
@@ -103,6 +116,56 @@ void veszvillogo(void)
 	jobb_index();
 }
 
+void CAN_beolvasas(void)
+{
+	kormanyszog = 0; //kormanyszog beolvasas
+	for(int i = 4; i > 0;i--)
+	{
+		sebesseg_x[i] = sebesseg_x[i-1];
+		sebesseg_y[i] = sebesseg_y[i-1];
+	}
+	
+	sebesseg_x[0] = 0; //sebessegbeolvasasok
+	sebesseg_y[0] = 0;
+}
+
+void blinker_reset(void)
+{
+	PORTA = 0;
+	PORTD = 0;
+	pos1 = 3;
+	pos2 = 4;
+	//PB0_pushed=FALSE;   ezek kellenek?, majd ha boardnál vagyunk próbáljuk ki
+	//PB2_pushed=FALSE;
+}
+
+void auto_blinker_off(void)
+{
+	if(kormanyszog > 20 && !kanyarodas) kanyarodas = TRUE;
+	if(kanyarodas)
+	{
+		if(kormanyszog < 5 && kanyarodas)
+		{
+			kanyarodas = FALSE;
+			blinker_reset();
+		}
+		
+	}
+	
+}
+
+void detect_crash(void)
+{
+	for(int i = 0;i < 5; i++)
+	{
+		sebesseg_abs[i]=sqrt( (sebesseg_x[i])*(sebesseg_x[i]) + (sebesseg_y[i])*(sebesseg_y[i]) )
+	}
+	
+	if( (sebesseg_abs[4]-sebesseg_abs[0]) > max_lassulas )
+	{
+		vesz_toggle = TRUE;
+	}
+}
 
 
 /******************************************************************************
@@ -120,16 +183,29 @@ int main(void)
 	
 	while(1)
 	{
+		//*****************************************************************************************************************
+		//10 ms timer
+		
 		if(timer_task_10ms)
 		{
 		
 			timer_task_10ms=FALSE;
 		}
+		//*****************************************************************************************************************
+		//50 ms timer
 		
 		if(timer_task_50ms)
 		{
-
-			//PB0	***********************************************************************************************************	
+			//************************************************************************************************************
+			//Automatikus függvények 
+			
+			CAN_beolvasas();
+			detect_crash();
+			auto_blinker_off();
+			
+			//*****************************************************************************************************************
+			//PB0		
+			
 			if((PINB & (1<<PB0)) == 0 && PB0_pushed == FALSE && PB0_re_enable_cnt==BTN_ENA_DELAY)
 			{
 						
@@ -139,32 +215,19 @@ int main(void)
 			if((PINB & (1<<PB0)) == (1<<PB0) && PB0_pushed == TRUE && PB0_re_enable_cnt==BTN_ENA_DELAY)
 			{
 				PB0_pushed=FALSE;
-				PORTA = 0;
-				PORTD = 0;
-				pos1 = 3;
-				pos2 = 4;
+				blinker_reset();
 				
 				PB0_re_enable_cnt = 40;
 			}
 			//*****************************************************************************************************************							
-					
 			// PB1
+			
 			if((PINB & (1<<PB1)) == 0 && PB1_pushed == FALSE && PB1_re_enable_cnt == PB1_ENA_DELAY)
 			{
-				if( vesz_toggle == FALSE )
-				{
-					vesz_toggle = TRUE;
-				}
+				if( vesz_toggle == FALSE ) vesz_toggle = TRUE;
+				else vesz_toggle = FALSE;
 				
-				else
-				{
-					vesz_toggle = FALSE;
-				}
-				
-				PORTA = 0;
-				PORTD = 0;
-				pos1 = 3;
-				pos2 = 4;
+				blinker_reset();
 				PB1_re_enable_cnt = 0;
 				PB1_pushed = TRUE;
 				
@@ -172,35 +235,29 @@ int main(void)
 				
 			if((PINB & (1<<PB1)) == (1<<PB1) && PB1_pushed == TRUE && PB1_re_enable_cnt == PB1_ENA_DELAY)
 			{
-				PORTA = 0;
-				PORTD = 0;
-				pos1 = 3;
-				pos2 = 4;
+				blinker_reset();
 				PB1_re_enable_cnt = 0;
 				PB1_pushed=FALSE;
 			}
 			
 			//*****************************************************************************************************************		
 			// PB2
+			
 			if((PINB & (1<<PB2)) == 0 && PB2_pushed == FALSE && PB2_re_enable_cnt==BTN_ENA_DELAY)
 			{
-				
 				PB2_pushed = TRUE;
 				PB2_re_enable_cnt = 0;
 			}
 			if((PINB & (1<<PB2)) == (1<<PB2) && PB2_pushed == TRUE && PB2_re_enable_cnt==BTN_ENA_DELAY)
 			{
-				PORTA = 0;
-				PORTD = 0;
-				pos1 = 3;
-				pos2 = 4;
+				blinker_reset();
 				
 				PB2_pushed=FALSE;
 				PB2_re_enable_cnt = 40;
 			}
 			//*****************************************************************************************************************		
+			//Gomb tiltasok
 			
-			//gomb tiltasok
 			if(PB0_re_enable_cnt<BTN_ENA_DELAY) PB0_re_enable_cnt += 1;
 			if(PB1_re_enable_cnt<PB1_ENA_DELAY) PB1_re_enable_cnt += 1;
 			if(PB2_re_enable_cnt<BTN_ENA_DELAY) PB2_re_enable_cnt += 1;
@@ -208,9 +265,9 @@ int main(void)
 			timer_task_50ms=FALSE;
 			}
 		
-	//*****************************************************************************************************************		
-			
-			//150 ms timer	
+		//*****************************************************************************************************************		
+		//150 ms timer	
+
 		if(timer_task_150ms)
 		{
 			if (PB0_pushed && !vesz_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) jobb_index();
@@ -222,32 +279,20 @@ int main(void)
 			
 			timer_task_150ms=FALSE;
 		}
-//*****************************************************************************************************************		
-			
-			//450 ms timer			
+		//*****************************************************************************************************************		
+		//450 ms timer	
+				
 		if(timer_task_450ms)
 		{
-			if(PB0_pushed || PB1_pushed || PB2_pushed)
-			{
-				ciklus++;
-			}
-			
-			if(ciklus == 1) ciklus = 0;
 			timer_task_450ms=FALSE;
 		}
 		
-//*****************************************************************************************************************		
-			
-			//1000 ms timer	
+		//*****************************************************************************************************************		
+		//1000 ms timer	
+		
 		if(timer_task_1s)
 		{
-			if(PB0_pushed || PB1_pushed || PB2_pushed)
-			{
-				ciklus++;
-			}
-			
-			if(ciklus == 1) ciklus = 0;
-			
+		
 			timer_task_1s=FALSE;
 		}
 	

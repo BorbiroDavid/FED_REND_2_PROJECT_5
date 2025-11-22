@@ -12,6 +12,7 @@
 #include <avr/delay.h>
 #include <stdio.h>
 #include "peripherals.h"
+#include <math.h>
 /******************************************************************************
 * Macros
 ******************************************************************************/
@@ -43,13 +44,15 @@ uint8_t jobb_ind = FALSE;
 uint8_t bal_ind = FALSE;
 uint8_t vesz_toggle = FALSE;
 
-float kormanyszog = 0;
+float kormanyszog[5];
 uint8_t kanyarodas = FALSE;
+uint8_t kanyar_count = 0;
 
 float sebesseg_x[5];
 float sebesseg_y[5];
 float sebesseg_abs[5];
-float max_lassulas = 7;
+float min_lassulas = 7;
+float max_lassulas = 10;
 
 
 
@@ -118,7 +121,7 @@ void veszvillogo(void)
 
 void CAN_beolvasas(void)
 {
-	kormanyszog = 0; //kormanyszog beolvasas
+	kormanyszog[0] = 0; //kormanyszog beolvasas
 	for(int i = 4; i > 0;i--)
 	{
 		sebesseg_x[i] = sebesseg_x[i-1];
@@ -141,15 +144,22 @@ void blinker_reset(void)
 
 void auto_blinker_off(void)
 {
-	if(kormanyszog > 20 && !kanyarodas) kanyarodas = TRUE;
-	if(kanyarodas)
+	for (int i=0;i<5;i++)
 	{
-		if(kormanyszog < 5 && kanyarodas)
+		if(kormanyszog[i] > 20 && kormanyszog[i-1] > 20 && !kanyarodas) kanyar_count++;
+		
+		if (kanyar_count>3)
+		{
+			kanyarodas = TRUE; // ennek lehet, hogy így nincs értelme, csak azt akarom, hogy csak abban az esetben tekintse kanyarodásnak, ha több ideig el van tekerve a kormány
+			kanyar_count = 0;
+		}
+		
+		if (kormanyszog[i] == 0 && kanyarodas)
 		{
 			kanyarodas = FALSE;
 			blinker_reset();
+			kanyar_count = 0;
 		}
-		
 	}
 	
 }
@@ -158,15 +168,14 @@ void detect_crash(void)
 {
 	for(int i = 0;i < 5; i++)
 	{
-		sebesseg_abs[i]=sqrt( (sebesseg_x[i])*(sebesseg_x[i]) + (sebesseg_y[i])*(sebesseg_y[i]) )
-	}
-	
-	if( (sebesseg_abs[4]-sebesseg_abs[0]) > max_lassulas )
-	{
-		vesz_toggle = TRUE;
+		sebesseg_abs[i]=hypotf(sebesseg_x[i],sebesseg_y[i]);
+		
+		if( (sebesseg_abs[i+1]-sebesseg_abs[i]) > min_lassulas && (sebesseg_abs[i+1]-sebesseg_abs[i]) < max_lassulas)
+		{
+			vesz_toggle = TRUE;
+		}
 	}
 }
-
 
 /******************************************************************************
 * Function:         int main(void)
@@ -227,7 +236,7 @@ int main(void)
 				if( vesz_toggle == FALSE ) vesz_toggle = TRUE;
 				else vesz_toggle = FALSE;
 				
-				blinker_reset();
+				blinker_reset(); 
 				PB1_re_enable_cnt = 0;
 				PB1_pushed = TRUE;
 				

@@ -12,6 +12,7 @@
 #include <avr/delay.h>
 #include <stdio.h>
 #include "peripherals.h"
+#include "can.h"
 #include <math.h>
 /******************************************************************************
 * Macros
@@ -43,6 +44,8 @@ uint8_t pos2 = 4;
 uint8_t jobb_ind = FALSE;
 uint8_t bal_ind = FALSE;
 uint8_t vesz_toggle = FALSE;
+uint8_t auto_det_crash = FALSE;
+uint8_t cnt_4bit = 0;
 
 float kormanyszog[5];
 uint8_t kanyarodas = FALSE;
@@ -54,6 +57,13 @@ float sebesseg_abs[5];
 float min_lassulas = 7;
 float max_lassulas = 10;
 
+uint8_t can_rx_data[8];
+uint32_t can_rx_id = 0x00000011;
+uint8_t can_rx_extended_id = FALSE;
+uint8_t can_rx_length;
+uint8_t can_msg_received=FALSE;
+
+uint8_t can_tx_data[8];
 
 
 /******************************************************************************
@@ -70,6 +80,7 @@ void jobb_index(void);
 void bal_index(void);
 void veszvillogo(void);
 void CAN_beolvasas(void);
+void CAN_kuldes(void);
 void blinker_reset(void);
 void auto_blinker_off(void);
 void detect_crash(void);
@@ -117,10 +128,24 @@ void veszvillogo(void)
 {
 	bal_index();
 	jobb_index();
+	if(auto_det_crash) auto_det_crash = FALSE;
 }
 
 void CAN_beolvasas(void)
 {
+	if(can_msg_received)
+	{
+		sprintf(string_for_write_can, "ID: 0x%lX, Length: %d, DATA:", can_rx_id, can_rx_length);
+		
+		for(uint8_t i=0; i<can_rx_length;i++)
+		{
+			sprintf(string_for_write_can, " 0x%X", can_rx_data[i]);
+			
+		}
+		
+		can_msg_received=0;
+	}
+	
 	kormanyszog[0] = 0; //kormanyszog beolvasas
 	for(int i = 4; i > 0;i--)
 	{
@@ -132,21 +157,30 @@ void CAN_beolvasas(void)
 	sebesseg_y[0] = 0;
 }
 
+void CAN_kuldes(void)
+{
+	uint8_t can_tx_data[8];
+	if(cnt_4bit == 15) cnt_4bit = 0;
+	else cnt_4bit++;
+	
+	can_tx_data[0]= cnt_4bit<<4 | auto_det_crash<<3 | vesz_toggle<<2 |PB0_pushed<<1 | PB2_pushed;
+	
+	CAN_SendMob(0,0x000001FD,FALSE,1,can_tx_data);
+}
+
 void blinker_reset(void)
 {
 	PORTA = 0;
 	PORTD = 0;
 	pos1 = 3;
 	pos2 = 4;
-	//PB0_pushed=FALSE;   ezek kellenek?, majd ha boardnál vagyunk próbáljuk ki
-	//PB2_pushed=FALSE;
 }
 
 void auto_blinker_off(void)
 {
 	for (int i=0;i<5;i++)
 	{
-		if(kormanyszog[i] > 20 && kormanyszog[i-1] > 20 && !kanyarodas) kanyar_count++;
+		if(sqrt((kormanyszog[i])^2) > 20 && kormanyszog[i-1] > 20 && !kanyarodas) kanyar_count++;
 		
 		if (kanyar_count>3)
 		{
@@ -173,6 +207,7 @@ void detect_crash(void)
 		if( (sebesseg_abs[i+1]-sebesseg_abs[i]) > min_lassulas && (sebesseg_abs[i+1]-sebesseg_abs[i]) < max_lassulas)
 		{
 			vesz_toggle = TRUE;
+			auto_det_crash = TRUE;
 		}
 	}
 }
@@ -188,6 +223,8 @@ int main(void)
 {
 	port_init();
 	timer_init();
+	can_init();
+	CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id, 8);	// enable reception on mob 0
 	sei();
 	
 	while(1)
@@ -209,8 +246,11 @@ int main(void)
 			//Automatikus függvények 
 			
 			CAN_beolvasas();
+			CAN_kuldes();
 			detect_crash();
 			auto_blinker_off();
+			
+			
 			
 			//*****************************************************************************************************************
 			//PB0		
@@ -322,7 +362,27 @@ ISR(TIMER0_COMP_vect)
  	if((timer_cnt % 45) == 0) timer_task_450ms = TRUE;
 	if((timer_cnt % 100) == 0) timer_task_1s = TRUE;
 }
+ISR(CANIT_vect) //CAN megszakítás
+{
+	uint8_t i, dlc = 0;
+	
 
+	CANPAGE = 0;	// select MOb0, reset FIFO index
+
+	if ( (CANSTMOB & (1<<RXOK)) != FALSE)	// Receive Complete
+	{
+		
+		dlc = CANCDMOB & 0x0F;
+		
+		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;
+		
+		CANSTMOB &= ~(1<<RXOK);	// clear RXOK flag
+		CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id, 8);	// enable next reception  on mob 0
+	}
+	can_rx_length=dlc;
+	can_msg_received=1;
+	
+}
 
 
 

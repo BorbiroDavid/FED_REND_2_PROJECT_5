@@ -59,7 +59,8 @@ float max_lassulas = 10;
 
 uint8_t can_rx_data[8];
 uint32_t can_rx_id = 0x00000011;
-uint8_t can_rx_extended_id = FALSE;
+uint8_t can_rx_extended_id_vel = FALSE;
+uint8_t can_rx_extended_id_stangle = FALSE;
 uint8_t can_rx_length;
 uint8_t can_msg_received=FALSE;
 
@@ -133,6 +134,8 @@ void veszvillogo(void)
 
 void CAN_beolvasas(void)
 {
+	char string_for_write_can[50];
+	
 	if(can_msg_received)
 	{
 		sprintf(string_for_write_can, "ID: 0x%lX, Length: %d, DATA:", can_rx_id, can_rx_length);
@@ -145,16 +148,6 @@ void CAN_beolvasas(void)
 		
 		can_msg_received=0;
 	}
-	
-	kormanyszog[0] = 0; //kormanyszog beolvasas
-	for(int i = 4; i > 0;i--)
-	{
-		sebesseg_x[i] = sebesseg_x[i-1];
-		sebesseg_y[i] = sebesseg_y[i-1];
-	}
-	
-	sebesseg_x[0] = 0; //sebessegbeolvasasok
-	sebesseg_y[0] = 0;
 }
 
 void CAN_kuldes(void)
@@ -184,7 +177,7 @@ void auto_blinker_off(void)
 		
 		if (kanyar_count>3)
 		{
-			kanyarodas = TRUE; // ennek lehet, hogy így nincs értelme, csak azt akarom, hogy csak abban az esetben tekintse kanyarodásnak, ha több ideig el van tekerve a kormány
+			kanyarodas = TRUE; 
 			kanyar_count = 0;
 		}
 		
@@ -224,7 +217,9 @@ int main(void)
 	port_init();
 	timer_init();
 	can_init();
-	CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id, 8);	// enable reception on mob 0
+	CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id_vel, 8);	// sebesseg reception on mob 0
+	CAN_ReceiveEnableMob(1, can_rx_id, can_rx_extended_id_stangle, 8);	// kormanyszog reception on mob 1
+	
 	sei();
 	
 	while(1)
@@ -377,7 +372,9 @@ ISR(CANIT_vect) //CAN megszakítás
 		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;
 		
 		CANSTMOB &= ~(1<<RXOK);	// clear RXOK flag
-		CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id, 8);	// enable next reception  on mob 0
+		CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id_vel, 8);	// enable next reception  on mob 0
+		CAN_ReceiveEnableMob(1, can_rx_id, can_rx_extended_id_stangle, 8);	// enable next reception  on mob 1
+		
 	}
 	can_rx_length=dlc;
 	can_msg_received=1;

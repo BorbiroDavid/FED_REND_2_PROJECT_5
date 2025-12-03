@@ -39,30 +39,49 @@ uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
 uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
 uint8_t enable_cnt = 0;
-int8_t pos1 = 3;
+uint8_t pos1 = 3;
 uint8_t pos2 = 4;
-uint8_t jobb_ind = FALSE;
-uint8_t bal_ind = FALSE;
-uint8_t vesz_toggle = FALSE;
+uint8_t right_turn = FALSE;
+uint8_t left_turn = FALSE;
+uint8_t warning_toggle = FALSE;
 uint8_t auto_det_crash = FALSE;
 uint8_t cnt_4bit = 0;
+// uint8_t cnt_3bit = 0;
+// uint8_t cnt_2bit = 0;
 
-float kormanyszog[5];
-uint8_t kanyarodas = FALSE;
-uint8_t kanyar_count = 0;
+float stangle[5];
+float stangle_limit = 20.0;
+float stangle_can_factor = 0.04;
+uint8_t is_turning = FALSE;
+uint8_t consecutive_count = 0;
 
-float sebesseg_x[5];
-float sebesseg_y[5];
-float sebesseg_abs[5];
-float min_lassulas = 7;
-float max_lassulas = 10;
+float vel_x[5];
+float vel_y[5];
+float vel_abs[5];
+float min_accel = 7;
+float max_accel = 10;
+float velx_can_factor = 0.1;
+float vely_can_factor = 0.05;
+
 
 uint8_t can_rx_data[8];
-uint32_t can_rx_id = 0x00000011;
-uint8_t can_rx_extended_id_vel = FALSE;
+uint32_t can_rx_id;
+uint32_t can_rx_id_stangle = 0x00010001; // 0x11
+uint32_t can_rx_id_vel = 0x00100010; // 0x22
+
 uint8_t can_rx_extended_id_stangle = FALSE;
+uint8_t can_rx_extended_id_velx = FALSE;
+uint8_t can_rx_extended_id_vely = FALSE;
+
 uint8_t can_rx_length;
+uint8_t can_rx_length_stangle = 16;
+uint8_t can_rx_length_velx = 12;
+uint8_t can_rx_length_vely = 10;
+
 uint8_t can_msg_received=FALSE;
+uint8_t stangle_received=FALSE;
+uint8_t vel_x_received=FALSE;
+uint8_t vel_y_received=FALSE;
 
 uint8_t can_tx_data[8];
 
@@ -75,16 +94,17 @@ uint8_t can_tx_data[8];
 /******************************************************************************
 * Local Function Declarations
 ******************************************************************************/
-void timer_init(void);
+
 void port_init(void);
-void jobb_index(void);
 void bal_index(void);
-void veszvillogo(void);
-void CAN_beolvasas(void);
+void timer_init(void);
+void jobb_index(void);
 void CAN_kuldes(void);
+void veszvillogo(void);
+void detect_crash(void);
+void CAN_beolvasas(void);
 void blinker_reset(void);
 void auto_blinker_off(void);
-void detect_crash(void);
 
 /******************************************************************************
 * Local Function Definitions
@@ -134,20 +154,34 @@ void veszvillogo(void)
 
 void CAN_beolvasas(void)
 {
-	char string_for_write_can[50];
-	
-	if(can_msg_received)
-	{
-		sprintf(string_for_write_can, "ID: 0x%lX, Length: %d, DATA:", can_rx_id, can_rx_length);
-		
-		for(uint8_t i=0; i<can_rx_length;i++)
-		{
-			sprintf(string_for_write_can, " 0x%X", can_rx_data[i]);
-			
-		}
-		
-		can_msg_received=0;
-	}
+	  if(can_msg_received)
+	  {
+		  switch(can_rx_id)
+		  {
+			  case 0x11: // kormányszög
+			  {
+				  for (int i=0;i<5;i++)
+				  {
+					  float raw_stangle = can_rx_data[1] << 8 | can_rx_data[0];
+					  stangle[i] = raw_stangle * stangle_can_factor;
+					  break;
+				  }			 
+			  }
+			  case 0x22: // sebesség
+			  {
+				  for (int j=0;j<5;j++)
+				  {
+					   float raw_velx = can_rx_data[4] | can_rx_data[1] << 8 | ;
+					   vel_x[j] = raw_velx * velx_can_factor;
+					   
+					   float raw_vely =  ;
+					   vel_y[j] = raw_vely * vely_can_factor;
+					   break;
+				  }
+			  }
+		  }
+		  can_msg_received = 0;
+	  }
 }
 
 void CAN_kuldes(void)
@@ -156,7 +190,7 @@ void CAN_kuldes(void)
 	if(cnt_4bit == 15) cnt_4bit = 0;
 	else cnt_4bit++;
 	
-	can_tx_data[0]= cnt_4bit<<4 | auto_det_crash<<3 | vesz_toggle<<2 |PB0_pushed<<1 | PB2_pushed;
+	can_tx_data[0]= cnt_4bit<<4 | auto_det_crash<<3 | warning_toggle<<2 |PB0_pushed<<1 | PB2_pushed;
 	
 	CAN_SendMob(0,0x000001FD,FALSE,1,can_tx_data);
 }
@@ -173,19 +207,19 @@ void auto_blinker_off(void)
 {
 	for (int i=0;i<5;i++)
 	{
-		if(sqrt((kormanyszog[i])^2) > 20 && kormanyszog[i-1] > 20 && !kanyarodas) kanyar_count++;
+		if(fabsf(stangle[i]) > stangle_limit && !is_turning) consecutive_count++;
 		
-		if (kanyar_count>3)
+		if (consecutive_count>3)
 		{
-			kanyarodas = TRUE; 
-			kanyar_count = 0;
+			is_turning = TRUE; 
+			consecutive_count = 0;
 		}
 		
-		if (kormanyszog[i] == 0 && kanyarodas)
+		if (stangle[i] == 0 && is_turning)
 		{
-			kanyarodas = FALSE;
+			is_turning = FALSE;
 			blinker_reset();
-			kanyar_count = 0;
+			consecutive_count = 0;
 		}
 	}
 	
@@ -195,11 +229,11 @@ void detect_crash(void)
 {
 	for(int i = 0;i < 5; i++)
 	{
-		sebesseg_abs[i]=hypotf(sebesseg_x[i],sebesseg_y[i]);
+		vel_abs[i]=hypotf(vel_x[i],vel_y[i]);
 		
-		if( (sebesseg_abs[i+1]-sebesseg_abs[i]) > min_lassulas && (sebesseg_abs[i+1]-sebesseg_abs[i]) < max_lassulas)
+		if( (vel_abs[i+1]-vel_abs[i]) > min_accel && (vel_abs[i+1]-vel_abs[i]) < max_accel)
 		{
-			vesz_toggle = TRUE;
+			warning_toggle = TRUE;
 			auto_det_crash = TRUE;
 		}
 	}
@@ -217,9 +251,9 @@ int main(void)
 	port_init();
 	timer_init();
 	can_init();
-	CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id_vel, 8);	// sebesseg reception on mob 0
-	CAN_ReceiveEnableMob(1, can_rx_id, can_rx_extended_id_stangle, 8);	// kormanyszog reception on mob 1
-	
+	CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_velx, 8);	// sebesség olvasás 
+	CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_vely, 8);	// sebesség olvasás
+	CAN_ReceiveEnableMob(0, can_rx_id_stangle, can_rx_extended_id_stangle, 8);	// kormányszög olvasás	
 	sei();
 	
 	while(1)
@@ -243,9 +277,7 @@ int main(void)
 			CAN_beolvasas();
 			CAN_kuldes();
 			detect_crash();
-			auto_blinker_off();
-			
-			
+			auto_blinker_off();		
 			
 			//*****************************************************************************************************************
 			//PB0		
@@ -268,8 +300,8 @@ int main(void)
 			
 			if((PINB & (1<<PB1)) == 0 && PB1_pushed == FALSE && PB1_re_enable_cnt == PB1_ENA_DELAY)
 			{
-				if( vesz_toggle == FALSE ) vesz_toggle = TRUE;
-				else vesz_toggle = FALSE;
+				if( warning_toggle == FALSE ) warning_toggle = TRUE;
+				else warning_toggle = FALSE;
 				
 				blinker_reset(); 
 				PB1_re_enable_cnt = 0;
@@ -314,11 +346,11 @@ int main(void)
 
 		if(timer_task_150ms)
 		{
-			if (PB0_pushed && !vesz_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) jobb_index();
+			if (PB0_pushed && !warning_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) jobb_index();
 			
-			if (vesz_toggle) veszvillogo();
+			if (warning_toggle) veszvillogo();
 			
-			if(PB2_pushed && !vesz_toggle && PB0_re_enable_cnt == BTN_ENA_DELAY) bal_index();
+			if(PB2_pushed && !warning_toggle && PB0_re_enable_cnt == BTN_ENA_DELAY) bal_index();
 			
 			
 			timer_task_150ms=FALSE;
@@ -357,30 +389,45 @@ ISR(TIMER0_COMP_vect)
  	if((timer_cnt % 45) == 0) timer_task_450ms = TRUE;
 	if((timer_cnt % 100) == 0) timer_task_1s = TRUE;
 }
-ISR(CANIT_vect) //CAN megszakítás
+ISR(CANIT_vect)
 {
 	uint8_t i, dlc = 0;
-	
 
-	CANPAGE = 0;	// select MOb0, reset FIFO index
+	CANPAGE = 0;  // MOB kiválasztása
 
-	if ( (CANSTMOB & (1<<RXOK)) != FALSE)	// Receive Complete
+	if ((CANSTMOB & (1<<RXOK)) != FALSE)
 	{
-		
 		dlc = CANCDMOB & 0x0F;
-		
-		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;
-		
-		CANSTMOB &= ~(1<<RXOK);	// clear RXOK flag
-		CAN_ReceiveEnableMob(0, can_rx_id, can_rx_extended_id_vel, 8);	// enable next reception  on mob 0
-		CAN_ReceiveEnableMob(1, can_rx_id, can_rx_extended_id_stangle, 8);	// enable next reception  on mob 1
+
+		switch(can_rx_length)
+		{
+			case can_rx_length_stangle:		// kormányszög olvasás
+				for(i=0;i<dlc;i++) stangle[i] = CANMSG;
+				can_rx_length_stangle = dlc;
+				stangle_received = 1;
+				break;
+
+			case can_rx_length_velx:		// x sebesség olvasás			
+				for(i=0;i<dlc;i++) vel_x[i] = CANMSG;
+				can_rx_length_velx = dlc;
+				vel_x_received = 1;
+				break;
+
+			case can_rx_length_vely:		// y sebesség olvasás
+				for(i=0;i<dlc;i++) vel_y[i] = CANMSG;
+				can_rx_length_vely = dlc;
+				vel_y_received = 1;
+				break;
+		}
+
+		CANSTMOB &= ~(1<<RXOK); // flag törlése
+
+		CAN_ReceiveEnableMob(0, can_rx_id_stangle, can_rx_extended_id_stangle, 8); // Következõ fogadás engedélyezése
+		CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_velx, 8); 
+		CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_vely, 8); 
 		
 	}
-	can_rx_length=dlc;
-	can_msg_received=1;
-	
 }
-
 
 
 

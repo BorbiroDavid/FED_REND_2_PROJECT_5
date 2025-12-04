@@ -38,6 +38,7 @@ uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = BTN_ENA_DELAY;
 uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
 uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
+uint8_t temp = 0;
 uint8_t enable_cnt = 0;
 uint8_t pos1 = 3;
 uint8_t pos2 = 4;
@@ -46,45 +47,36 @@ uint8_t left_turn = FALSE;
 uint8_t warning_toggle = FALSE;
 uint8_t auto_det_crash = FALSE;
 uint8_t cnt_4bit = 0;
-// uint8_t cnt_3bit = 0;
-// uint8_t cnt_2bit = 0;
 
-float stangle[5];
-float stangle_limit = 20.0;
-float stangle_can_factor = 0.04;
+uint16_t raw_st_angle = 0;
+uint16_t raw_vel_x= 0;
+uint16_t raw_vel_y= 0;
+
+float st_angle = 0;
+float st_angle_limit = 20.0;
+float st_angle_can_factor = 0.04;
 uint8_t is_turning = FALSE;
 uint8_t consecutive_count = 0;
 
-float vel_x[5];
-float vel_y[5];
-float vel_abs[5];
+float vel_x = 0;
+float vel_y = 0;
+uint32_t vel_abs[5];
 float min_accel = 7;
 float max_accel = 10;
 float velx_can_factor = 0.1;
 float vely_can_factor = 0.05;
 
-
 uint8_t can_rx_data[8];
+uint8_t can_rx_data2[8];
 uint32_t can_rx_id;
-uint32_t can_rx_id_stangle = 0x00010001; // 0x11
-uint32_t can_rx_id_vel = 0x00100010; // 0x22
 
-uint8_t can_rx_extended_id_stangle = FALSE;
-uint8_t can_rx_extended_id_velx = FALSE;
-uint8_t can_rx_extended_id_vely = FALSE;
-
-uint8_t can_rx_length;
-uint8_t can_rx_length_stangle = 16;
-uint8_t can_rx_length_velx = 12;
-uint8_t can_rx_length_vely = 10;
+const uint8_t can_rx_length_st_angle = 16;
+const uint8_t can_rx_length_velx = 12;
+const uint8_t can_rx_length_vely = 10;
 
 uint8_t can_msg_received=FALSE;
-uint8_t stangle_received=FALSE;
-uint8_t vel_x_received=FALSE;
-uint8_t vel_y_received=FALSE;
 
 uint8_t can_tx_data[8];
-
 
 /******************************************************************************
 * External Variables
@@ -96,9 +88,9 @@ uint8_t can_tx_data[8];
 ******************************************************************************/
 
 void port_init(void);
-void bal_index(void);
+void left_index(void);
 void timer_init(void);
-void jobb_index(void);
+void right_index(void);
 void CAN_kuldes(void);
 void veszvillogo(void);
 void detect_crash(void);
@@ -119,7 +111,7 @@ void port_init(void)
 	PORTB = (1<<PB0) | (1<<PB1) | (1 << PB2);
 }
 
-void jobb_index(void)
+void right_index(void)
 {	
 	
 	if (pos1 >= 0 ) PORTA = PORTA | (1<<pos1);
@@ -133,7 +125,7 @@ void jobb_index(void)
 	
 }
 
-void bal_index(void)
+void left_index(void)
 {
 	if (pos2 <= 7 ) PORTA = PORTA | (1<<pos2);
 	if (pos2 == 8) PORTA = PORTA & 0x0f;
@@ -147,41 +139,30 @@ void bal_index(void)
 
 void veszvillogo(void)
 {
-	bal_index();
-	jobb_index();
+	left_index();
+	right_index();
 	if(auto_det_crash) auto_det_crash = FALSE;
 }
 
 void CAN_beolvasas(void)
 {
 	  if(can_msg_received)
-	  {
-		  switch(can_rx_id)
-		  {
-			  case 0x11: // kormányszög
-			  {
-				  for (int i=0;i<5;i++)
-				  {
-					  float raw_stangle = can_rx_data[1] << 8 | can_rx_data[0];
-					  stangle[i] = raw_stangle * stangle_can_factor;
-					  break;
-				  }			 
-			  }
-			  case 0x22: // sebesség
-			  {
-				  for (int j=0;j<5;j++)
-				  {
-					   float raw_velx = can_rx_data[4] | can_rx_data[1] << 8 | ;
-					   vel_x[j] = raw_velx * velx_can_factor;
-					   
-					   float raw_vely =  ;
-					   vel_y[j] = raw_vely * vely_can_factor;
-					   break;
-				  }
-			  }
-		  }
-		  can_msg_received = 0;
+	  { 
+			raw_vel_x = can_rx_data[3];
+			raw_vel_x = raw_vel_x & ((can_rx_data[4] & 0x0F)<<8);
+			
+			raw_vel_y = ((can_rx_data[4] & 0xF0)>>4);
+			raw_vel_y = raw_vel_y & (8<<(can_rx_data[5] & 0x00111111));  
+			  
+			raw_st_angle = can_rx_data2[0] & (can_rx_data2[1]<<8);
+			
+			
+			st_angle = raw_st_angle * st_angle_can_factor;
+			vel_x = raw_vel_x * velx_can_factor;
+			vel_y = raw_vel_y * vely_can_factor;				
 	  }
+		  can_msg_received = 0;
+	  
 }
 
 void CAN_kuldes(void)
@@ -205,38 +186,36 @@ void blinker_reset(void)
 
 void auto_blinker_off(void)
 {
-	for (int i=0;i<5;i++)
-	{
-		if(fabsf(stangle[i]) > stangle_limit && !is_turning) consecutive_count++;
+		if(fabsf(st_angle) > st_angle_limit && !is_turning) consecutive_count++;
 		
 		if (consecutive_count>3)
 		{
 			is_turning = TRUE; 
-			consecutive_count = 0;
+			consecutive_count = 0;		
 		}
 		
-		if (stangle[i] == 0 && is_turning)
+		if (fabsf(st_angle) < 5 && is_turning)
 		{
 			is_turning = FALSE;
 			blinker_reset();
 			consecutive_count = 0;
-		}
-	}
-	
+		}	
 }
 
 void detect_crash(void)
 {
-	for(int i = 0;i < 5; i++)
+	for (int i=0;i<5;i++)
 	{
-		vel_abs[i]=hypotf(vel_x[i],vel_y[i]);
+		vel_abs[i+temp]=hypotf(vel_x,vel_y);
+		temp++;
 		
-		if( (vel_abs[i+1]-vel_abs[i]) > min_accel && (vel_abs[i+1]-vel_abs[i]) < max_accel)
+		if ( ((vel_abs[4]-vel_abs[0])/0,20)  > min_accel && ((vel_abs[4]-vel_abs[0])/0,20) < max_accel)
 		{
 			warning_toggle = TRUE;
 			auto_det_crash = TRUE;
 		}
 	}
+	if (temp==4) temp=0;
 }
 
 /******************************************************************************
@@ -251,9 +230,9 @@ int main(void)
 	port_init();
 	timer_init();
 	can_init();
-	CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_velx, 8);	// sebesség olvasás 
-	CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_vely, 8);	// sebesség olvasás
-	CAN_ReceiveEnableMob(0, can_rx_id_stangle, can_rx_extended_id_stangle, 8);	// kormányszög olvasás	
+	CAN_ReceiveEnableMob(0, 0x22, FALSE, 8);	 // sebesség olvasás
+	CAN_ReceiveEnableMob(1, 0x11, FALSE, 5);	// kormányszög olvasás
+	
 	sei();
 	
 	while(1)
@@ -263,7 +242,7 @@ int main(void)
 		
 		if(timer_task_10ms)
 		{
-		
+		    CAN_beolvasas();
 			timer_task_10ms=FALSE;
 		}
 		//*****************************************************************************************************************
@@ -274,7 +253,7 @@ int main(void)
 			//************************************************************************************************************
 			//Automatikus függvények 
 			
-			CAN_beolvasas();
+			
 			CAN_kuldes();
 			detect_crash();
 			auto_blinker_off();		
@@ -346,11 +325,11 @@ int main(void)
 
 		if(timer_task_150ms)
 		{
-			if (PB0_pushed && !warning_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) jobb_index();
+			if (PB0_pushed && !warning_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) right_index();
 			
 			if (warning_toggle) veszvillogo();
 			
-			if(PB2_pushed && !warning_toggle && PB0_re_enable_cnt == BTN_ENA_DELAY) bal_index();
+			if(PB2_pushed && !warning_toggle && PB0_re_enable_cnt == BTN_ENA_DELAY) left_index();
 			
 			
 			timer_task_150ms=FALSE;
@@ -398,35 +377,23 @@ ISR(CANIT_vect)
 	if ((CANSTMOB & (1<<RXOK)) != FALSE)
 	{
 		dlc = CANCDMOB & 0x0F;
-
-		switch(can_rx_length)
-		{
-			case can_rx_length_stangle:		// kormányszög olvasás
-				for(i=0;i<dlc;i++) stangle[i] = CANMSG;
-				can_rx_length_stangle = dlc;
-				stangle_received = 1;
-				break;
-
-			case can_rx_length_velx:		// x sebesség olvasás			
-				for(i=0;i<dlc;i++) vel_x[i] = CANMSG;
-				can_rx_length_velx = dlc;
-				vel_x_received = 1;
-				break;
-
-			case can_rx_length_vely:		// y sebesség olvasás
-				for(i=0;i<dlc;i++) vel_y[i] = CANMSG;
-				can_rx_length_vely = dlc;
-				vel_y_received = 1;
-				break;
-		}
-
-		CANSTMOB &= ~(1<<RXOK); // flag törlése
-
-		CAN_ReceiveEnableMob(0, can_rx_id_stangle, can_rx_extended_id_stangle, 8); // Következõ fogadás engedélyezése
-		CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_velx, 8); 
-		CAN_ReceiveEnableMob(0, can_rx_id_vel, can_rx_extended_id_vely, 8); 
+		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;
 		
 	}
+			
+	CANPAGE = 1;  // MOB kiválasztása
+
+	if ((CANSTMOB & (1<<RXOK)) != FALSE)
+	{
+		dlc = CANCDMOB & 0x0F;
+		for (i=0; i<dlc; i++) can_rx_data2[i] = CANMSG;
+
+	}
+	
+	CANSTMOB &= ~(1<<RXOK); // flag törlése
+	
+	CAN_ReceiveEnableMob(0, 0x22, FALSE, 8);	 // sebesség olvasás
+	CAN_ReceiveEnableMob(1, 0x11, FALSE, 5);	// kormányszög olvasás
 }
 
 

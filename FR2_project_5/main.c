@@ -38,42 +38,43 @@ uint8_t PB0_pushed = FALSE, PB0_re_enable_cnt = BTN_ENA_DELAY;
 uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
 uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
-uint8_t temp = 0;
-uint8_t enable_cnt = 0;
+
+//Index változók
 uint8_t pos1 = 3;
 uint8_t pos2 = 4;
-uint8_t right_turn = FALSE;
-uint8_t left_turn = FALSE;
 uint8_t warning_toggle = FALSE;
 uint8_t auto_det_crash = FALSE;
-uint8_t cnt_4bit = 0;
 
+
+//Beolvasott nyers 16 bites CAN adatok
 uint16_t raw_st_angle = 0;
 uint16_t raw_vel_x= 0;
 uint16_t raw_vel_y= 0;
+uint8_t cnt_4bit = 0;
 
-float st_angle = 0;
-float st_angle_limit = 20.0;
+//Automatikus index visszaállításhoz használt változók
+float st_angle = 0;					//deg
+float st_angle_limit = 20.0;		//deg
 float st_angle_can_factor = 0.04;
 uint8_t is_turning = FALSE;
 uint8_t consecutive_count = 0;
 
-float vel_x = 0;
-float vel_y = 0;
-uint32_t vel_abs[5];
-float min_accel = 7;
-float max_accel = 10;
+//Gyorsulás számításhoz használt változók
+float vel_x = 0;       // m/s
+float vel_y = 0;       // m/s
+float vel_abs[5];      // m/s
+float min_accel = 7;   // m/s2
+float max_accel = 10;  // m/s2 
 float velx_can_factor = 0.1;
 float vely_can_factor = 0.05;
 
+//CAN változók
 uint8_t can_rx_data[8];
 uint8_t can_rx_data2[8];
 uint32_t can_rx_id;
-
 const uint8_t can_rx_length_st_angle = 16;
 const uint8_t can_rx_length_velx = 12;
 const uint8_t can_rx_length_vely = 10;
-
 uint8_t can_msg_received=FALSE;
 
 uint8_t can_tx_data[8];
@@ -103,8 +104,8 @@ void auto_blinker_off(void);
 ******************************************************************************/
 void port_init(void)
 {
-      DDRA = 0xff;
-      DDRD = 0xff;
+    DDRA = 0xff;
+    DDRD = 0xff;
       
 	
 	DDRB = (0<<PB0) | (0<<PB1) | (0 << PB2);
@@ -161,7 +162,8 @@ void CAN_beolvasas(void)
 			vel_x = raw_vel_x * velx_can_factor;
 			vel_y = raw_vel_y * vely_can_factor;				
 	  }
-		  can_msg_received = 0;
+	  
+	  can_msg_received = FALSE;
 	  
 }
 
@@ -188,7 +190,7 @@ void auto_blinker_off(void)
 {
 		if(fabsf(st_angle) > st_angle_limit && !is_turning) consecutive_count++;
 		
-		if (consecutive_count>3)
+		if (consecutive_count>5)
 		{
 			is_turning = TRUE; 
 			consecutive_count = 0;		
@@ -204,18 +206,18 @@ void auto_blinker_off(void)
 
 void detect_crash(void)
 {
-	for (int i=0;i<5;i++)
+	for (int i=0;i<4;i++)
 	{
-		vel_abs[i+temp]=hypotf(vel_x,vel_y);
-		temp++;
-		
-		if ( ((vel_abs[4]-vel_abs[0])/0,20)  > min_accel && ((vel_abs[4]-vel_abs[0])/0,20) < max_accel)
-		{
-			warning_toggle = TRUE;
-			auto_det_crash = TRUE;
-		}
+		vel_abs[i] = vel_abs[i+1]
 	}
-	if (temp==4) temp=0;
+	vel_abs[4]=hypotf(vel_x,vel_y);
+	
+	
+	if ( ((vel_abs[4]-vel_abs[0])/0,20)  > min_accel && ((vel_abs[4]-vel_abs[0])/0,20) < max_accel)
+	{
+		warning_toggle = TRUE;
+		auto_det_crash = TRUE;
+	}
 }
 
 /******************************************************************************
@@ -259,7 +261,7 @@ int main(void)
 			auto_blinker_off();		
 			
 			//*****************************************************************************************************************
-			//PB0		
+			//PB0	(Jobb Index)	
 			
 			if((PINB & (1<<PB0)) == 0 && PB0_pushed == FALSE && PB0_re_enable_cnt==BTN_ENA_DELAY)
 			{
@@ -275,12 +277,13 @@ int main(void)
 				PB0_re_enable_cnt = 40;
 			}
 			//*****************************************************************************************************************							
-			// PB1
+			// PB1   (Vészvillogó)
 			
 			if((PINB & (1<<PB1)) == 0 && PB1_pushed == FALSE && PB1_re_enable_cnt == PB1_ENA_DELAY)
 			{
 				if( warning_toggle == FALSE ) warning_toggle = TRUE;
 				else warning_toggle = FALSE;
+				if(auto_det_crash) auto_det_crash = FALSE;
 				
 				blinker_reset(); 
 				PB1_re_enable_cnt = 0;
@@ -296,7 +299,7 @@ int main(void)
 			}
 			
 			//*****************************************************************************************************************		
-			// PB2
+			// PB2     (Bal index)
 			
 			if((PINB & (1<<PB2)) == 0 && PB2_pushed == FALSE && PB2_re_enable_cnt==BTN_ENA_DELAY)
 			{
@@ -368,11 +371,13 @@ ISR(TIMER0_COMP_vect)
  	if((timer_cnt % 45) == 0) timer_task_450ms = TRUE;
 	if((timer_cnt % 100) == 0) timer_task_1s = TRUE;
 }
+
+
 ISR(CANIT_vect)
 {
 	uint8_t i, dlc = 0;
 
-	CANPAGE = 0;  // MOB kiválasztása
+	CANPAGE = 0;  // MOB 0 kiválasztása
 
 	if ((CANSTMOB & (1<<RXOK)) != FALSE)
 	{
@@ -381,7 +386,7 @@ ISR(CANIT_vect)
 		
 	}
 			
-	CANPAGE = 1;  // MOB kiválasztása
+	CANPAGE = 1;  // MOB 1 kiválasztása
 
 	if ((CANSTMOB & (1<<RXOK)) != FALSE)
 	{
@@ -392,6 +397,8 @@ ISR(CANIT_vect)
 	
 	CANSTMOB &= ~(1<<RXOK); // flag törlése
 	
+	
+	can_msg_received = TRUE;
 	CAN_ReceiveEnableMob(0, 0x22, FALSE, 8);	 // sebesség olvasás
 	CAN_ReceiveEnableMob(1, 0x11, FALSE, 5);	// kormányszög olvasás
 }

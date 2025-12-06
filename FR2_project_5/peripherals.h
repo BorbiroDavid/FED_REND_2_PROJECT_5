@@ -24,8 +24,7 @@
 /******************************************************************************
 * Global Function Declarations
 ******************************************************************************/
-void port_init(void);
 void external_int_init(void);
-
+void timer_init(void);
 
 #endif /* PERIPHERALS_H_ */

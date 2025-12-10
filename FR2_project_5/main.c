@@ -1,5 +1,5 @@
 /******************************************************************************
- * Created: 2025.11.06.
+ * Created: 2025.12.11.
  * Author : Borbiró Dávid, Ádám Barnabás, Maczkó Márk Soma
 ******************************************************************************/
  /******************************************************************************
@@ -21,6 +21,7 @@
 #define FALSE 0
 #define BTN_ENA_DELAY 50
 #define PB1_ENA_DELAY 5
+#define ERR_COUNTER_MISMATCH 0x01
 /******************************************************************************
 * Constants
 ******************************************************************************/
@@ -73,9 +74,6 @@ float vely_can_factor = 0.05;
 uint8_t cnt_4bit = 0;  //kiküldött timer counter
 uint8_t can_rx_data[8];
 uint8_t can_rx_data2[8];
-const uint8_t can_rx_length_st_angle = 16;
-const uint8_t can_rx_length_velx = 12;
-const uint8_t can_rx_length_vely = 10;
 uint8_t can_msg_received=FALSE;
 uint8_t can_tx_data[1];
 uint8_t can_tx_error[1];
@@ -149,10 +147,10 @@ void CAN_read(void)
 {
 	//Vehicle dynamincs üzenetbõl használt adatok beolvasása
 	raw_vel_x = can_rx_data[3];
-	raw_vel_x = raw_vel_x & ((can_rx_data[4] & 0x0F)<<8);
+	raw_vel_x |= ((can_rx_data[4] & 0x0F)<<8);
 			
 	raw_vel_y = ((can_rx_data[4] & 0xF0)>>4);
-	raw_vel_y = raw_vel_y & (8<<(can_rx_data[5] & 0b00111111)); 
+	raw_vel_y |= (8<<(can_rx_data[5] & 0b00111111)); 
 			
 	cnt_2bit = ((can_rx_data[7] & 0b11000000) >> 6 ); //Itt a maszkolás nem biztos, hogy kell, ez kérdés
 			
@@ -175,8 +173,7 @@ void CAN_read(void)
 	if(cnt_3bit_local == 7) cnt_3bit_local = 0;
 	else cnt_3bit_local++;
 	if(cnt_3bit != cnt_3bit_local) CAN_sendError();  
-
-	can_msg_received = FALSE;		
+	
 }
 
 void CAN_send(void)
@@ -191,9 +188,8 @@ void CAN_send(void)
 
 void CAN_sendError(void)
 {
-	can_tx_error[0] = 0x00; //Ez még kérdés, hogy mit küldünk!
-	
-    CAN_SendMob(2, 0x100, FALSE, 1, can_tx_error);
+	can_tx_error[0] = ERR_COUNTER_MISMATCH; // 0x01-es hibakód
+	CAN_SendMob(2, 0x100, FALSE, 1, can_tx_error);
 }
 
 void blinker_reset(void)
@@ -230,7 +226,7 @@ void detect_crash(void)
 	vel_abs[4]=hypotf(vel_x,vel_y);
 	
 	
-	if ( (((vel_abs[4]-vel_abs[0]) / (0.20))  > min_accel) && (((vel_abs[4]-vel_abs[0]) / (0.20)) < max_accel) )
+	if ( ((fabsf(vel_abs[4]-vel_abs[0]) / (0.20))  > min_accel) && ((fabsf(vel_abs[4]-vel_abs[0]) / (0.20)) < max_accel) )
 	{
 		warning_toggle = TRUE;
 		auto_det_crash = TRUE;
@@ -360,8 +356,7 @@ int main(void)
 		if(timer_task_450ms)
 		{
 			timer_task_450ms=FALSE;
-		}
-		
+		}		
 		//*****************************************************************************************************************		
 		//1000 ms timer	
 		
@@ -369,12 +364,9 @@ int main(void)
 		{
 		
 			timer_task_1s=FALSE;
-		}
-	
-	}
-	
+		}	
+	}	
 }
-
 
 /******************************************************************************
 * Interrupt Routines
@@ -399,8 +391,7 @@ ISR(CANIT_vect)
 	if ((CANSTMOB & (1<<RXOK)) != FALSE)
 	{
 		dlc = CANCDMOB & 0x0F;
-		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;
-		
+		for (i=0; i<dlc; i++) can_rx_data[i] = CANMSG;		
 	}
 			
 	CANPAGE = 1;  // MOB 1 kiválasztása
@@ -409,13 +400,10 @@ ISR(CANIT_vect)
 	{
 		dlc = CANCDMOB & 0x0F;
 		for (i=0; i<dlc; i++) can_rx_data2[i] = CANMSG;
-
 	}
 	
 	CANSTMOB &= ~(1<<RXOK); // flag törlése
 	
-	
-	can_msg_received = TRUE;
 	CAN_ReceiveEnableMob(0, 0x22, FALSE, 8);	 // sebesség olvasás engedélyezése
 	CAN_ReceiveEnableMob(1, 0x11, FALSE, 5);	// kormányszög olvasás engedélyezése
 }

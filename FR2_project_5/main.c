@@ -40,7 +40,7 @@ uint8_t PB1_pushed = FALSE, PB1_re_enable_cnt = PB1_ENA_DELAY;
 uint8_t PB2_pushed = FALSE, PB2_re_enable_cnt = BTN_ENA_DELAY;
 
 //Index változók
-uint8_t pos1 = 3;
+int8_t pos1 = 3;
 uint8_t pos2 = 4;
 uint8_t warning_toggle = FALSE;
 uint8_t auto_det_crash = FALSE;
@@ -105,7 +105,7 @@ void port_init(void)
 {
     DDRA = 0xff;
     DDRD = 0xff;
-      
+    
 	
 	DDRB = (0<<PB0) | (0<<PB1) | (0 << PB2);
 	PORTB = (1<<PB0) | (1<<PB1) | (1 << PB2);
@@ -152,13 +152,12 @@ void CAN_read(void)
 	raw_vel_y = ((can_rx_data[4] & 0xF0)>>4);
 	raw_vel_y |= (8<<(can_rx_data[5] & 0b00111111)); 
 			
-	cnt_2bit = ((can_rx_data[7] & 0b11000000) >> 6 ); //Itt a maszkolás nem biztos, hogy kell, ez kérdés
-			
+	cnt_2bit = ((can_rx_data[7] & 0b11000000) >> 6 ); 
 			 
 	//Vehicle controls üzenetbõl használt adatok beolvasása  
 	raw_st_angle = can_rx_data2[0] & (can_rx_data2[1]<<8);
 	
-	cnt_3bit = 	((can_rx_data[4] & 0b11100000) >> 5 ); //Itt a maszkolás nem biztos, hogy kell, ez kérdés	
+	cnt_3bit = 	((can_rx_data[4] & 0b11100000) >> 5 );
 	
 	//Adatok konvertálása
 	st_angle = raw_st_angle * st_angle_can_factor - 1310.72;
@@ -166,13 +165,15 @@ void CAN_read(void)
 	vel_y = raw_vel_y * vely_can_factor - 25.6;	
 	
 	//Counterek biztonsági ellenõrzése
-	if(cnt_2bit_local == 3) cnt_2bit_local = 0;
-	else cnt_2bit_local++;
-	if(cnt_2bit != cnt_2bit_local) CAN_sendError();  
+	//if(cnt_2bit_local == 3) cnt_2bit_local = 0;
+	//else cnt_2bit_local++;
+	//if(cnt_2bit != cnt_2bit_local) CAN_sendError();  
+	//
+	//if(cnt_3bit_local == 7) cnt_3bit_local = 0;
+	//else cnt_3bit_local++;
+	//if(cnt_3bit != cnt_3bit_local) CAN_sendError();  
 	
-	if(cnt_3bit_local == 7) cnt_3bit_local = 0;
-	else cnt_3bit_local++;
-	if(cnt_3bit != cnt_3bit_local) CAN_sendError();  
+	can_msg_received = FALSE;
 	
 }
 
@@ -183,13 +184,13 @@ void CAN_send(void)
 	
 	can_tx_data[0]= cnt_4bit<<4 | auto_det_crash<<3 | warning_toggle<<2 |PB0_pushed<<1 | PB2_pushed;
 	
-	CAN_SendMob(0,0x1FD,FALSE,1,can_tx_data);
+	CAN_SendMob(2,0x1FD,FALSE,1,&can_tx_data[0]);
 }
 
 void CAN_sendError(void)
 {
 	can_tx_error[0] = ERR_COUNTER_MISMATCH; // 0x01-es hibakód
-	CAN_SendMob(2, 0x100, FALSE, 1, can_tx_error);
+	CAN_SendMob(3, 0x100, FALSE, 1, can_tx_error);
 }
 
 void blinker_reset(void)
@@ -257,7 +258,7 @@ int main(void)
 		
 		if(timer_task_10ms)
 		{
-		    if(can_msg_received) CAN_read();
+		    CAN_read();
 
 			timer_task_10ms=FALSE;
 		}
@@ -272,7 +273,7 @@ int main(void)
 			CAN_send();
 			detect_crash();
 			auto_blinker_off();		
-			
+			PORTC = 0xff;
 			//*****************************************************************************************************************
 			//PB0	(Jobb Index)	
 			
@@ -341,7 +342,7 @@ int main(void)
 
 		if(timer_task_150ms)
 		{
-			if (PB0_pushed && !warning_toggle && PB2_re_enable_cnt == BTN_ENA_DELAY) right_index();
+			if (PB0_pushed && !warning_toggle /*&& PB2_re_enable_cnt == BTN_ENA_DELAY*/) right_index();
 			
 			if (warning_toggle) emergency_lights();
 			
@@ -406,6 +407,8 @@ ISR(CANIT_vect)
 	
 	CAN_ReceiveEnableMob(0, 0x22, FALSE, 8);	 // sebesség olvasás engedélyezése
 	CAN_ReceiveEnableMob(1, 0x11, FALSE, 5);	// kormányszög olvasás engedélyezése
+	
+	can_msg_received = TRUE;
 }
 
 
